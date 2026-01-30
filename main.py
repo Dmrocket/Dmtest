@@ -12,8 +12,9 @@ from datetime import datetime
 # Routers
 from app.auth.routes import router as auth_router
 from app.automations.routes import router as automations_router
-from app.instagram.webhooks import router as webhook_router
-# This now correctly points to the file containing the webhook logic
+# FIXED: Added the missing import for instagram_router
+from app.instagram.routes import router as instagram_router
+# FIXED: Kept the webhook import (removed duplicate)
 from app.instagram.webhooks import router as webhook_router 
 from app.payments.routes import router as payments_router
 from app.affiliates.routes import router as affiliates_router
@@ -61,12 +62,15 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": "An internal server error occurred. Our team has been notified."}
     )
 
-# Standardized API Routes with /api prefix
-# This creates the path: /api/webhooks/instagram (Matches Meta Dashboard)
+# Standardized API Routes
+# This router handles /api/webhooks/instagram (The one failing verification)
 app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
+
+# This router handles /api/instagram/media, etc. (The one that caused NameError)
+app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
+
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(automations_router, prefix="/api/automations", tags=["Automations"])
-app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
 app.include_router(payments_router, prefix="/api/payments", tags=["Payments"])
 app.include_router(affiliates_router, prefix="/api/affiliates", tags=["Affiliates"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
