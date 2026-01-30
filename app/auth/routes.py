@@ -196,37 +196,33 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
 @router.get("/facebook/login")
 async def facebook_login():
     """
-    Redirects user to the Instagram Business Login flow.
-    We use the Instagram-specific URL to force the Instagram Login UI.
+    Redirects user to the Facebook/Instagram Business Login flow.
+    Fix: Use the Facebook OAuth Dialog endpoint for Business/Graph API support.
     """
     state = secrets.token_urlsafe(32)
-    # We use the official Instagram Business scopes + Page scopes to ensure
-    # the backend can find the linked page in the callback.
+    # Required scopes for DM automation and Page linking
     scope = (
-        "instagram_business_basic,"
-        "instagram_business_manage_messages,"
-        "instagram_business_manage_comments,"
-        "instagram_business_content_publish,"
-        "instagram_business_manage_insights,"
         "public_profile,"
+        "email,"
+        "instagram_basic,"
+        "instagram_manage_messages,"
+        "instagram_manage_comments,"
         "pages_show_list,"
-        "pages_read_engagement"
+        "pages_read_engagement,"
+        "pages_manage_metadata"
     )
     
-    # We must URL-encode the redirect URI
     encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
 
-    # 🚀 USING INSTAGRAM.COM OAUTH
-    # This ensures the user sees the Instagram Login screen (Username/Password)
-    # instead of the generic Facebook login page.
+    # ✅ CORRECT ENDPOINT: For Business Apps, use the Facebook OAuth dialog.
+    # This prevents the "Invalid platform app" error seen with instagram.com endpoints.
     auth_url = (
-        "https://www.instagram.com/oauth/authorize"
-        f"?force_reauth=true"
-        f"&client_id={settings.META_APP_ID}"
+        "https://www.facebook.com/v19.0/dialog/oauth"
+        f"?client_id={settings.META_APP_ID}"
         f"&redirect_uri={encoded_redirect_uri}"
-        f"&response_type=code"
+        f"&state={state}"
         f"&scope={scope}"
-        f"&state={state}" 
+        "&response_type=code"
     )
 
     return RedirectResponse(auth_url)
@@ -239,14 +235,13 @@ async def facebook_callback(
     db: Session = Depends(get_db),
 ):
     """
-    Step 2: Instagram/Facebook redirects here. 
-    We exchange the code for a Long-Lived User Token (60 days).
+    Step 2: Facebook redirects here. 
+    Exchange code for tokens and link the Instagram Business Account.
     """
     logger.info("Facebook/Instagram OAuth callback received")
 
     async with httpx.AsyncClient() as client:
         # 1️⃣ Exchange code → Short-Lived Access Token (1 hour)
-        # Even though we used instagram.com login, the token exchange endpoint is still graph.facebook.com
         token_resp = await client.get(
             "https://graph.facebook.com/v19.0/oauth/access_token",
             params={
@@ -267,7 +262,6 @@ async def facebook_callback(
             )
 
         # 2️⃣ Exchange Short-Lived → Long-Lived Token (60 Days)
-        # This is CRITICAL for SaaS so users don't have to login constantly
         long_lived_resp = await client.get(
             "https://graph.facebook.com/v19.0/oauth/access_token",
             params={
@@ -279,13 +273,16 @@ async def facebook_callback(
         )
         
         long_lived_data = long_lived_resp.json()
-        long_lived_token = long_lived_data.get("access_token", short_lived_token) # Fallback if fails
+        long_lived_token = long_lived_data.get("access_token", short_lived_token)
 
-        # 3️⃣ Get Facebook Pages using the Long-Lived Token
-        # We need to find the Page that owns the Instagram Business Account
+        # 3️⃣ Get Facebook Pages and find the connected Instagram Account
+        # Optimize: Fetch accounts and their connected IG account in one call
         pages_resp = await client.get(
             "https://graph.facebook.com/v19.0/me/accounts",
-            params={"access_token": long_lived_token},
+            params={
+                "fields": "name,access_token,connected_instagram_account{id,username}",
+                "access_token": long_lived_token
+            },
         )
         
         pages_data = pages_resp.json()
@@ -295,45 +292,21 @@ async def facebook_callback(
         ig_username = None
         final_page_token = None
 
-        # 4️⃣ Loop through pages to find the connected Instagram account
+        # 4️⃣ Identify the linked Instagram account
         for page in pages:
-            page_id = page["id"]
-            # To act as the Page (and thus the IG account), we need the Page Access Token
-            page_access_token = page.get("access_token") 
-
-            # Check for connected Instagram account
-            page_detail = await client.get(
-                f"https://graph.facebook.com/v19.0/{page_id}",
-                params={
-                    "fields": "connected_instagram_account",
-                    "access_token": page_access_token,
-                },
-            )
-
-            if page_detail.status_code == 200:
-                page_info = page_detail.json()
-                ig_account = page_info.get("connected_instagram_account")
-
-                if ig_account:
-                    ig_user_id = ig_account["id"]
-                    final_page_token = page_access_token
-                    
-                    # Get the actual Instagram username
-                    profile_resp = await client.get(
-                        f"https://graph.facebook.com/v19.0/{ig_user_id}",
-                        params={"fields": "username", "access_token": page_access_token}
-                    )
-                    ig_username = profile_resp.json().get("username")
-                    break 
+            ig_account = page.get("connected_instagram_account")
+            if ig_account:
+                ig_user_id = ig_account.get("id")
+                ig_username = ig_account.get("username")
+                final_page_token = page.get("access_token")
+                break 
 
         if not ig_user_id:
-            logger.error("No Instagram Business account found linked to these Pages.")
+            logger.error("No Instagram Business account found linked to the user's Pages.")
             return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?error=no_ig_account")
 
         # 5️⃣ Success! Redirect to frontend.
-        # NOTE: In a real app, you would identify the User (via cookie or state) and save this data directly.
-        # Here we pass it back to frontend to save via a secure endpoint or handle session association.
-        
+        # Ensure you include 'connected=true' and the account details
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/dashboard?connected=true&ig_username={ig_username}&ig_id={ig_user_id}"
         )
