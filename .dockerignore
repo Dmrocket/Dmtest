@@ -1,0 +1,14 @@
+# Ignore local Python artifacts
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Ignore local env and git
+.env
+.git
+.gitignore
+
+# Ignore logs
+*.log
