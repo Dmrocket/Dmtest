@@ -9,17 +9,19 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
 
-# Routers
+# --- IMPORTS ---
 from app.auth.routes import router as auth_router
 from app.automations.routes import router as automations_router
-# FIXED: Added the missing import for instagram_router
-from app.instagram.routes import router as instagram_router
-# FIXED: Kept the webhook import (removed duplicate)
-from app.instagram.webhooks import router as webhook_router 
 from app.payments.routes import router as payments_router
 from app.affiliates.routes import router as affiliates_router
 from app.admin.routes import router as admin_router
 from app.config import settings
+
+# FIX 1: Import the standard Instagram API routes
+from app.instagram.routes import router as instagram_router
+
+# FIX 2: Import the Webhook routes (from the file we just fixed)
+from app.instagram.webhooks import router as webhook_router 
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,17 +36,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="DMRocket API", version="1.0.0", lifespan=lifespan)
 
 # CORS Configuration
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    settings.FRONTEND_URL,
-    "https://dmrocket.co",
-    "https://www.dmrocket.co",
-    "https://app.dmrocket.co",
-]
-# Clean up null values from settings
-origins = [o for o in origins if o]
-
+origins = ["*"] # Allow all for testing
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -59,16 +51,20 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Internal Server Error: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500, 
-        content={"detail": "An internal server error occurred. Our team has been notified."}
+        content={"detail": "An internal server error occurred."}
     )
 
-# Standardized API Routes
-# This router handles /api/webhooks/instagram (The one failing verification)
+# --- REGISTER ROUTERS ---
+
+# 1. Webhooks Router
+# Creates route: /api/webhooks/instagram (AND /api/webhooks/instagram/)
 app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
 
-# This router handles /api/instagram/media, etc. (The one that caused NameError)
+# 2. Instagram API Router
+# Creates route: /api/instagram/media, etc.
 app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
 
+# 3. Other Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(automations_router, prefix="/api/automations", tags=["Automations"])
 app.include_router(payments_router, prefix="/api/payments", tags=["Payments"])

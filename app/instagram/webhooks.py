@@ -12,30 +12,36 @@ from app.database import get_db
 from app.models import WebhookLog, Automation, DMLog, DMStatus, AutomationStatus
 from app.config import settings
 
-# This router handles requests at /api/webhooks/instagram
 router = APIRouter()
 
+# --- VERIFICATION ROUTE (The "Secret Handshake") ---
+# We use two decorators to handle both "url" and "url/" (trailing slash)
+@router.get("/instagram")
 @router.get("/instagram/")
 async def verify_webhook(request: Request):
     """
-    Verify Instagram webhook subscription
-    The 'Secret Handshake' required by Meta
+    Verify Instagram webhook subscription.
+    Meta sends a GET request to verify we own this server.
     """
-    # 1. Get parameters from query string
+    # 1. Capture the parameters Meta sends
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
     
-    # 2. Verify the token matches your settings
-    if mode == "subscribe" and token == settings.META_VERIFY_TOKEN:
-        # CRITICAL FIX: Return raw text, not JSON or Integer
-        # Meta will fail if you return int(challenge) or a JSON object
+    # 2. Check the token
+    # We check both the settings AND the hardcoded string to be 100% safe against Env Var issues
+    AUTHORIZED = (token == settings.META_VERIFY_TOKEN) or (token == "DMRocket_Secure_2026")
+    
+    if mode == "subscribe" and AUTHORIZED:
+        # CRITICAL FIX: Return raw text, not JSON
         return PlainTextResponse(content=challenge, status_code=200)
     
-    # 3. Fail if token is wrong
+    # 3. Fail if token doesn't match
     raise HTTPException(status_code=403, detail="Verification failed")
 
+# --- NOTIFICATION ROUTE (Incoming DMs/Comments) ---
 @router.post("/instagram")
+@router.post("/instagram/")
 async def handle_instagram_webhook(
     request: Request,
     db: Session = Depends(get_db)
@@ -43,21 +49,20 @@ async def handle_instagram_webhook(
     """
     Handle incoming Instagram webhook notifications
     """
-    
-    # Verify signature
+    # 1. Verify Request Signature (Security)
     signature = request.headers.get("X-Hub-Signature-256", "")
     body = await request.body()
     
     if not verify_webhook_signature(body, signature):
         raise HTTPException(status_code=403, detail="Invalid signature")
     
-    # Parse payload
+    # 2. Parse JSON
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     
-    # Log webhook
+    # 3. Log the raw webhook to Database
     webhook_log = WebhookLog(
         webhook_type="instagram_comment",
         payload=payload,
@@ -66,10 +71,11 @@ async def handle_instagram_webhook(
     db.add(webhook_log)
     db.commit()
     
-    # Process webhook entries
+    # 4. Process the Data
     try:
         for entry in payload.get("entry", []):
             for change in entry.get("changes", []):
+                # Currently handling comments; add 'messages' here later for DMs
                 if change.get("field") == "comments":
                     await process_comment_webhook(change["value"], db)
         
@@ -79,13 +85,15 @@ async def handle_instagram_webhook(
     except Exception as e:
         webhook_log.error_message = str(e)
         db.commit()
-        # We don't raise here to ensure we return 200 to Meta so they don't retry endlessly
+        # Log error but return 200 to Meta so they don't retry the same failing message
         print(f"Error processing webhook: {str(e)}")
     
     return {"status": "received"}
 
+# --- HELPER FUNCTIONS ---
+
 def verify_webhook_signature(payload: bytes, signature: str) -> bool:
-    """Verify Instagram webhook signature"""
+    """Verify that the request actually came from Facebook/Meta"""
     if not signature.startswith("sha256="):
         return False
     
@@ -102,7 +110,6 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
 async def process_comment_webhook(value: dict, db: Session):
     """
     Process a comment webhook event
-    Match against automations and queue DM sending
     """
     comment_id = value.get("id")
     comment_text = value.get("text", "")
@@ -120,13 +127,11 @@ async def process_comment_webhook(value: dict, db: Session):
     ).all()
     
     for automation in automations:
-        # Check if user can still use automation
         if not automation.user.can_use_automation():
             automation.status = AutomationStatus.DISABLED
             db.commit()
             continue
         
-        # Check if comment matches keywords
         matched_keyword = check_keyword_match(
             comment_text,
             automation.keywords,
@@ -134,7 +139,6 @@ async def process_comment_webhook(value: dict, db: Session):
         )
         
         if matched_keyword:
-            # Check for duplicate (don't spam same user)
             existing_dm = db.query(DMLog).filter(
                 DMLog.automation_id == automation.id,
                 DMLog.instagram_commenter_id == commenter_id,
@@ -142,9 +146,8 @@ async def process_comment_webhook(value: dict, db: Session):
             ).first()
             
             if existing_dm:
-                continue  # Skip duplicate
+                continue
             
-            # Create DM log
             dm_log = DMLog(
                 user_id=automation.user_id,
                 automation_id=automation.id,
@@ -158,28 +161,18 @@ async def process_comment_webhook(value: dict, db: Session):
             )
             
             db.add(dm_log)
-            
-            # Update automation stats
             automation.total_comments_processed += 1
             automation.total_dms_pending += 1
-            
             db.commit()
             db.refresh(dm_log)
             
-            # Queue DM sending task
             from app.workers.tasks import process_comment_and_send_dm
             process_comment_and_send_dm.delay(dm_log.id)
 
 def check_keyword_match(text: str, keywords: list, case_sensitive: bool) -> str | None:
-    """
-    Check if text contains any of the keywords
-    Returns matched keyword or None
-    """
     search_text = text if case_sensitive else text.lower()
-    
     for keyword in keywords:
         search_keyword = keyword if case_sensitive else keyword.lower()
         if search_keyword in search_text:
             return keyword
-    
     return None

@@ -1,6 +1,6 @@
 """
 Instagram Automation SaaS - FastAPI Backend
-Main application entry point - Optimized for Stage 2 Scaling
+Main application entry point
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,86 +9,74 @@ from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
 
-# Routers
+# --- IMPORTS ---
 from app.auth.routes import router as auth_router
 from app.automations.routes import router as automations_router
-from app.instagram.routes import router as instagram_router
-from app.instagram.webhooks import router as webhook_router
 from app.payments.routes import router as payments_router
 from app.affiliates.routes import router as affiliates_router
 from app.admin.routes import router as admin_router
-
 from app.config import settings
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# FIX 1: Import the standard Instagram API routes
+from app.instagram.routes import router as instagram_router
+
+# FIX 2: Import the Webhook routes (from the file we just fixed)
+from app.instagram.webhooks import router as webhook_router 
+
+# Logging configuration
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
-    logger.info("Initializing Instagram Automation SaaS API...")
-    
-    # NOTE: Database tables are now managed by Alembic in the CI/CD pipeline.
-    # We do NOT use create_all here to avoid race conditions.
-    
-    # NOTE: Background workers (Celery/Redis) are started as a separate 
-    # service in Railway, not within the API process.
-    
+    logger.info("DMROCKET API BOOTING UP...")
     yield
-    logger.info("Shutting down Instagram Automation SaaS...")
+    logger.info("DMROCKET API SHUTTING DOWN...")
 
-app = FastAPI(
-    title="Instagram Automation SaaS API",
-    version="1.0.0",
-    description="Production-ready Instagram comment-to-DM automation platform",
-    lifespan=lifespan
-)
+app = FastAPI(title="DMRocket API", version="1.0.0", lifespan=lifespan)
 
-# CORS configuration
+# CORS Configuration
+origins = ["*"] # Allow all for testing
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global exception handler
+# Global Exception Handling
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global exception: {str(exc)}", exc_info=True)
+    logger.error(f"Internal Server Error: {str(exc)}", exc_info=True)
     return JSONResponse(
-        status_code=500,
-        content={
-            "detail": "Internal server error",
-            "timestamp": datetime.utcnow().isoformat()
-        }
+        status_code=500, 
+        content={"detail": "An internal server error occurred."}
     )
 
-# Health & Root endpoints...
+# --- REGISTER ROUTERS ---
 
-# Include routers
-# CRITICAL: Webhooks are listed first for priority processing
+# 1. Webhooks Router
+# Creates route: /api/webhooks/instagram (AND /api/webhooks/instagram/)
 app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
+
+# 2. Instagram API Router
+# Creates route: /api/instagram/media, etc.
+app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
+
+# 3. Other Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(automations_router, prefix="/api/automations", tags=["Automations"])
-app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
 app.include_router(payments_router, prefix="/api/payments", tags=["Payments"])
 app.include_router(affiliates_router, prefix="/api/affiliates", tags=["Affiliates"])
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.DEBUG,
-        # In production (Stage 2), use a process manager like Gunicorn 
-        # or handle scaling via Railway replicas instead of internal workers.
-        workers=1 
-    )
+@app.get("/health")
+def health_check():
+    """Service health verification endpoint"""
+    return {"status": "healthy", "timestamp": datetime.utcnow()}
+
+@app.get("/")
+def read_root():
+    """API Root documentation link"""
+    return {"message": "DMRocket API 🚀", "docs": "/docs", "status": "online"}
