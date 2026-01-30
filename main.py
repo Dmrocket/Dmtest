@@ -17,6 +17,10 @@ from app.payments.routes import router as payments_router
 from app.affiliates.routes import router as affiliates_router
 from app.admin.routes import router as admin_router
 from app.instagram.routes import router as instagram_router
+
+# FIXED: Import the actual webhook logic router, NOT just a placeholder
+from app.instagram.webhooks import router as webhook_router 
+
 from app.config import settings
 
 # Logging
@@ -40,31 +44,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- NUCLEAR WEBHOOK VERIFICATION ---
-# We handle this directly in main.py to prevent 404s
-@app.get("/api/webhooks/instagram")
-@app.get("/api/webhooks/instagram/")
-async def verify_webhook_direct(request: Request):
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
-    
-    # 1. Check Env Variable (Railway Variable)
-    # 2. Check Hardcoded Backup
-    AUTHORIZED = (token == os.getenv("META_VERIFY_TOKEN")) or (token == "DMRocket_Secure_2026")
-    
-    if mode == "subscribe" and AUTHORIZED:
-        return PlainTextResponse(content=challenge, status_code=200)
-    
-    raise HTTPException(status_code=403, detail="Verification failed")
+# --- REGISTER ROUTERS ---
 
-@app.post("/api/webhooks/instagram")
-@app.post("/api/webhooks/instagram/")
-async def handle_webhook_direct(request: Request):
-    return {"status": "received"}
-# ------------------------------------
+# 1. Webhooks (Priority)
+# Mount at /api/webhooks. Since the router has /instagram, full path is /api/webhooks/instagram
+app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
 
-# Register other routers
+# 2. Other Routers
 app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(automations_router, prefix="/api/automations", tags=["Automations"])

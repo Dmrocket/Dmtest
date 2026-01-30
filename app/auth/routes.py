@@ -189,27 +189,44 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 async def get_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
+# ============================================================================
+# INSTAGRAM BUSINESS LOGIN
+# ============================================================================
 
 @router.get("/facebook/login")
 async def facebook_login():
+    """
+    Redirects user to the Instagram Business Login flow.
+    We use the Instagram-specific URL to force the Instagram Login UI.
+    """
     state = secrets.token_urlsafe(32)
-    encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
-
-    # Updated permissions for standard DM automation support
+    # We use the official Instagram Business scopes + Page scopes to ensure
+    # the backend can find the linked page in the callback.
     scope = (
-        "public_profile,email,"
-        "pages_show_list,pages_read_engagement,"
-        "instagram_basic,instagram_manage_comments,"
-        "instagram_manage_messages"
+        "instagram_business_basic,"
+        "instagram_business_manage_messages,"
+        "instagram_business_manage_comments,"
+        "instagram_business_content_publish,"
+        "instagram_business_manage_insights,"
+        "public_profile,"
+        "pages_show_list,"
+        "pages_read_engagement"
     )
     
+    # We must URL-encode the redirect URI
+    encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
+
+    # 🚀 USING INSTAGRAM.COM OAUTH
+    # This ensures the user sees the Instagram Login screen (Username/Password)
+    # instead of the generic Facebook login page.
     auth_url = (
-        "https://www.facebook.com/v19.0/dialog/oauth"
-        f"?client_id={settings.META_APP_ID}"
+        "https://www.instagram.com/oauth/authorize"
+        f"?force_reauth=true"
+        f"&client_id={settings.META_APP_ID}"
         f"&redirect_uri={encoded_redirect_uri}"
-        f"&state={state}"
-        f"&scope={scope}"
         f"&response_type=code"
+        f"&scope={scope}"
+        f"&state={state}" 
     )
 
     return RedirectResponse(auth_url)
@@ -222,13 +239,14 @@ async def facebook_callback(
     db: Session = Depends(get_db),
 ):
     """
-    Step 2: Facebook redirects here. 
+    Step 2: Instagram/Facebook redirects here. 
     We exchange the code for a Long-Lived User Token (60 days).
     """
-    logger.info("Facebook OAuth callback received")
+    logger.info("Facebook/Instagram OAuth callback received")
 
     async with httpx.AsyncClient() as client:
-        # 1️⃣ Exchange code → Short-Lived Facebook Access Token (1 hour)
+        # 1️⃣ Exchange code → Short-Lived Access Token (1 hour)
+        # Even though we used instagram.com login, the token exchange endpoint is still graph.facebook.com
         token_resp = await client.get(
             "https://graph.facebook.com/v19.0/oauth/access_token",
             params={
@@ -264,6 +282,7 @@ async def facebook_callback(
         long_lived_token = long_lived_data.get("access_token", short_lived_token) # Fallback if fails
 
         # 3️⃣ Get Facebook Pages using the Long-Lived Token
+        # We need to find the Page that owns the Instagram Business Account
         pages_resp = await client.get(
             "https://graph.facebook.com/v19.0/me/accounts",
             params={"access_token": long_lived_token},
@@ -280,7 +299,6 @@ async def facebook_callback(
         for page in pages:
             page_id = page["id"]
             # To act as the Page (and thus the IG account), we need the Page Access Token
-            # Usually, the User Token (long_lived_token) is enough to read, but saving page_access_token is safer for automation
             page_access_token = page.get("access_token") 
 
             # Check for connected Instagram account
@@ -315,10 +333,6 @@ async def facebook_callback(
         # 5️⃣ Success! Redirect to frontend.
         # NOTE: In a real app, you would identify the User (via cookie or state) and save this data directly.
         # Here we pass it back to frontend to save via a secure endpoint or handle session association.
-        
-        # We redirect with success param. 
-        # Ideally, we would update the user here if we had the user_id context.
-        # Since this is a callback, we assume the Frontend handles the final "Save" or we store in DB if we tracked state.
         
         return RedirectResponse(
             url=f"{settings.FRONTEND_URL}/dashboard?connected=true&ig_username={ig_username}&ig_id={ig_user_id}"
