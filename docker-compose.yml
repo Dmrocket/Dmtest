@@ -36,7 +36,7 @@ services:
   # Backend API
   backend:
     build:
-      context: ./backend
+      context: .              # FIXED: Point to root, not ./backend
       dockerfile: Dockerfile
     container_name: instagram_backend
     depends_on:
@@ -49,19 +49,21 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - META_VERIFY_TOKEN=DMRocket_Secure_2026 # Added for convenience
     env_file:
-      - ./backend/.env
+      - .env                  # FIXED: Point to root .env
     ports:
-      - "8000:8000"
+      - "8080:8080"           # FIXED: Standardized to 8080 to match cloud
     volumes:
-      - ./backend:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - .:/app                # FIXED: Mount root directory to /app
+    # FIXED: Command uses port 8080
+    command: uvicorn main:app --host 0.0.0.0 --port 8080 --reload
     restart: unless-stopped
 
   # Celery Worker
   celery_worker:
     build:
-      context: ./backend
+      context: .              # FIXED
       dockerfile: Dockerfile
     container_name: instagram_celery_worker
     depends_on:
@@ -74,16 +76,16 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     env_file:
-      - ./backend/.env
+      - .env                  # FIXED
     volumes:
-      - ./backend:/app
+      - .:/app                # FIXED
     command: celery -A app.workers.tasks worker --loglevel=info
     restart: unless-stopped
 
   # Celery Beat (Scheduler)
   celery_beat:
     build:
-      context: ./backend
+      context: .              # FIXED
       dockerfile: Dockerfile
     container_name: instagram_celery_beat
     depends_on:
@@ -96,13 +98,13 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     env_file:
-      - ./backend/.env
+      - .env                  # FIXED
     volumes:
-      - ./backend:/app
+      - .:/app                # FIXED
     command: celery -A app.workers.tasks beat --loglevel=info
     restart: unless-stopped
 
-  # Frontend
+  # Frontend (Ensure you have a 'frontend' folder, otherwise remove this block)
   frontend:
     build:
       context: ./frontend
@@ -116,7 +118,7 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:8000/api
+      - VITE_API_URL=http://localhost:8080/api # FIXED: Point to 8080
     command: npm run dev -- --host
     restart: unless-stopped
 
