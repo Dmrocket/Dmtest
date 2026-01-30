@@ -193,25 +193,31 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
 async def facebook_login():
     """
     Redirects user to the Native Instagram Login flow.
-    Uses the modern Instagram Business Login protocol for native branding.
+    Integrates with the Configuration ID 1370276994933060.
     """
     state = secrets.token_urlsafe(32)
-    # Native scopes for Instagram Business Login
+    # CONFIG ID is required for the native 2026 flow to work with custom permissions
+    config_id = "1370276994933060"
+    
+    # Scopes must be present in your Dashboard Configuration
     scope = (
         "instagram_business_basic,"
         "instagram_business_manage_messages,"
         "instagram_business_manage_comments,"
-        "instagram_business_content_publish"
+        "instagram_business_content_publish,"
+        "pages_show_list,"
+        "pages_read_engagement"
     )
     
     encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
 
-    # ✅ FIXED ENDPOINT: Native Instagram Login
+    # ✅ FIXED ENDPOINT: Native Instagram Login with config_id
     auth_url = (
         "https://www.instagram.com/oauth/authorize"
         "?force_reauth=true"
         f"&client_id={settings.META_APP_ID}"
         f"&redirect_uri={encoded_redirect_uri}"
+        f"&config_id={config_id}"
         "&response_type=code"
         f"&scope={scope}"
         f"&state={state}" 
@@ -228,7 +234,7 @@ async def facebook_callback(
 ):
     """
     Step 2: Instagram redirects here. 
-    Exchanges code for a Long-Lived User Token and links the account.
+    Exchanges code for a Long-Lived User Token.
     """
     logger.info("Instagram Native OAuth callback received")
 
@@ -237,8 +243,7 @@ async def facebook_callback(
         code = code[:-2]
 
     async with httpx.AsyncClient() as client:
-        # 1️⃣ Exchange code → Short-Lived Access Token (1 hour)
-        # For Business Login, we hit the graph.instagram.com endpoint
+        # 1️⃣ Exchange code → Short-Lived Access Token
         token_resp = await client.post(
             "https://api.instagram.com/oauth/access_token",
             data={
