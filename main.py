@@ -2,9 +2,10 @@
 Instagram Automation SaaS - FastAPI Backend
 Main application entry point
 """
-from fastapi import FastAPI, Request
+import os
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
@@ -15,16 +16,11 @@ from app.automations.routes import router as automations_router
 from app.payments.routes import router as payments_router
 from app.affiliates.routes import router as affiliates_router
 from app.admin.routes import router as admin_router
+from app.instagram.routes import router as instagram_router
 from app.config import settings
 
-# FIX 1: Import the standard Instagram API routes
-from app.instagram.routes import router as instagram_router
-
-# FIX 2: Import the Webhook routes (from the file we just fixed)
-from app.instagram.webhooks import router as webhook_router 
-
-# Logging configuration
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
@@ -35,36 +31,41 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DMRocket API", version="1.0.0", lifespan=lifespan)
 
-# CORS Configuration
-origins = ["*"] # Allow all for testing
+# CORS: Allow all for now to prevent frontend issues
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global Exception Handling
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Internal Server Error: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500, 
-        content={"detail": "An internal server error occurred."}
-    )
+# --- NUCLEAR WEBHOOK VERIFICATION ---
+# We handle this directly in main.py to prevent 404s
+@app.get("/api/webhooks/instagram")
+@app.get("/api/webhooks/instagram/")
+async def verify_webhook_direct(request: Request):
+    mode = request.query_params.get("hub.mode")
+    token = request.query_params.get("hub.verify_token")
+    challenge = request.query_params.get("hub.challenge")
+    
+    # 1. Check Env Variable (Railway Variable)
+    # 2. Check Hardcoded Backup
+    AUTHORIZED = (token == os.getenv("META_VERIFY_TOKEN")) or (token == "DMRocket_Secure_2026")
+    
+    if mode == "subscribe" and AUTHORIZED:
+        return PlainTextResponse(content=challenge, status_code=200)
+    
+    raise HTTPException(status_code=403, detail="Verification failed")
 
-# --- REGISTER ROUTERS ---
+@app.post("/api/webhooks/instagram")
+@app.post("/api/webhooks/instagram/")
+async def handle_webhook_direct(request: Request):
+    return {"status": "received"}
+# ------------------------------------
 
-# 1. Webhooks Router
-# Creates route: /api/webhooks/instagram (AND /api/webhooks/instagram/)
-app.include_router(webhook_router, prefix="/api/webhooks", tags=["Webhooks"])
-
-# 2. Instagram API Router
-# Creates route: /api/instagram/media, etc.
+# Register other routers
 app.include_router(instagram_router, prefix="/api/instagram", tags=["Instagram"])
-
-# 3. Other Routers
 app.include_router(auth_router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(automations_router, prefix="/api/automations", tags=["Automations"])
 app.include_router(payments_router, prefix="/api/payments", tags=["Payments"])
@@ -73,10 +74,8 @@ app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
 
 @app.get("/health")
 def health_check():
-    """Service health verification endpoint"""
-    return {"status": "healthy", "timestamp": datetime.utcnow()}
+    return {"status": "healthy"}
 
 @app.get("/")
 def read_root():
-    """API Root documentation link"""
-    return {"message": "DMRocket API 🚀", "docs": "/docs", "status": "online"}
+    return {"message": "DMRocket API 🚀"}

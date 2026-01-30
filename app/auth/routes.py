@@ -190,19 +190,25 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
 
-@router.get("facebook/login")
+@router.get("/facebook/login")
 async def facebook_login():
     state = secrets.token_urlsafe(32)
     encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
 
+    # Updated permissions for standard DM automation support
+    scope = (
+        "public_profile,email,"
+        "pages_show_list,pages_read_engagement,"
+        "instagram_basic,instagram_manage_comments,"
+        "instagram_manage_messages"
+    )
+    
     auth_url = (
         "https://www.facebook.com/v19.0/dialog/oauth"
         f"?client_id={settings.META_APP_ID}"
         f"&redirect_uri={encoded_redirect_uri}"
         f"&state={state}"
-        f"&scope=public_profile,email,"
-        f"pages_show_list,pages_read_engagement,"
-        f"instagram_basic,instagram_manage_messages"
+        f"&scope={scope}"
         f"&response_type=code"
     )
 
@@ -216,12 +222,13 @@ async def facebook_callback(
     db: Session = Depends(get_db),
 ):
     """
-    Step 2: Facebook redirects here
+    Step 2: Facebook redirects here. 
+    We exchange the code for a Long-Lived User Token (60 days).
     """
     logger.info("Facebook OAuth callback received")
 
     async with httpx.AsyncClient() as client:
-        # 1️⃣ Exchange code → Facebook access token
+        # 1️⃣ Exchange code → Short-Lived Facebook Access Token (1 hour)
         token_resp = await client.get(
             "https://graph.facebook.com/v19.0/oauth/access_token",
             params={
@@ -233,34 +240,50 @@ async def facebook_callback(
         )
 
         token_data = token_resp.json()
-        fb_access_token = token_data.get("access_token")
+        short_lived_token = token_data.get("access_token")
 
-        if not fb_access_token:
+        if not short_lived_token:
             logger.error(f"Token exchange failed: {token_data}")
             return RedirectResponse(
-                url=f"{settings.FRONTEND_URL}/dashboard?connected=false"
+                url=f"{settings.FRONTEND_URL}/dashboard?connected=false&error=token_failed"
             )
 
-        # 2️⃣ Get Facebook Pages
-        pages_resp = await client.get(
-            "https://graph.facebook.com/v19.0/me/accounts",
-            params={"access_token": fb_access_token},
+        # 2️⃣ Exchange Short-Lived → Long-Lived Token (60 Days)
+        # This is CRITICAL for SaaS so users don't have to login constantly
+        long_lived_resp = await client.get(
+            "https://graph.facebook.com/v19.0/oauth/access_token",
+            params={
+                "grant_type": "fb_exchange_token",
+                "client_id": settings.META_APP_ID,
+                "client_secret": settings.META_APP_SECRET,
+                "fb_exchange_token": short_lived_token
+            }
         )
         
-        # ✅ FIX: Extract 'data' from the pages_resp, not token_data
+        long_lived_data = long_lived_resp.json()
+        long_lived_token = long_lived_data.get("access_token", short_lived_token) # Fallback if fails
+
+        # 3️⃣ Get Facebook Pages using the Long-Lived Token
+        pages_resp = await client.get(
+            "https://graph.facebook.com/v19.0/me/accounts",
+            params={"access_token": long_lived_token},
+        )
+        
         pages_data = pages_resp.json()
         pages = pages_data.get("data", []) 
 
         ig_user_id = None
         ig_username = None
+        final_page_token = None
 
-        # 3️⃣ Loop through pages to find the connected Instagram account
+        # 4️⃣ Loop through pages to find the connected Instagram account
         for page in pages:
             page_id = page["id"]
-            # ✅ BUG FIX: Use the specific PAGE token
-            page_access_token = page["access_token"] 
+            # To act as the Page (and thus the IG account), we need the Page Access Token
+            # Usually, the User Token (long_lived_token) is enough to read, but saving page_access_token is safer for automation
+            page_access_token = page.get("access_token") 
 
-            # ✅ BUG FIX: Use 'connected_instagram_account' field
+            # Check for connected Instagram account
             page_detail = await client.get(
                 f"https://graph.facebook.com/v19.0/{page_id}",
                 params={
@@ -275,6 +298,7 @@ async def facebook_callback(
 
                 if ig_account:
                     ig_user_id = ig_account["id"]
+                    final_page_token = page_access_token
                     
                     # Get the actual Instagram username
                     profile_resp = await client.get(
@@ -288,14 +312,16 @@ async def facebook_callback(
             logger.error("No Instagram Business account found linked to these Pages.")
             return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?error=no_ig_account")
 
-        # 4️⃣ Store token + IG user id (Uncomment when user logic is ready)
-        # current_user.instagram_username = ig_username
-        # current_user.instagram_user_id = ig_user_id
-        # current_user.encrypted_access_token = encrypt_token(fb_access_token)
-        # db.commit()
-
+        # 5️⃣ Success! Redirect to frontend.
+        # NOTE: In a real app, you would identify the User (via cookie or state) and save this data directly.
+        # Here we pass it back to frontend to save via a secure endpoint or handle session association.
+        
+        # We redirect with success param. 
+        # Ideally, we would update the user here if we had the user_id context.
+        # Since this is a callback, we assume the Frontend handles the final "Save" or we store in DB if we tracked state.
+        
         return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/dashboard?connected=true"
+            url=f"{settings.FRONTEND_URL}/dashboard?connected=true&ig_username={ig_username}&ig_id={ig_user_id}"
         )
 
 @router.post("/refresh")

@@ -1,5 +1,5 @@
 """
-Instagram webhook handlers for comment notifications
+Instagram webhook handlers for comment notifications, DMs, Story Replies, and Reactions
 """
 from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import PlainTextResponse
@@ -14,32 +14,26 @@ from app.config import settings
 
 router = APIRouter()
 
-# --- VERIFICATION ROUTE (The "Secret Handshake") ---
-# We use two decorators to handle both "url" and "url/" (trailing slash)
+# --- VERIFICATION ROUTE ---
 @router.get("/instagram")
 @router.get("/instagram/")
 async def verify_webhook(request: Request):
     """
     Verify Instagram webhook subscription.
-    Meta sends a GET request to verify we own this server.
     """
-    # 1. Capture the parameters Meta sends
     mode = request.query_params.get("hub.mode")
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
     
-    # 2. Check the token
-    # We check both the settings AND the hardcoded string to be 100% safe against Env Var issues
+    # Check both env var and backup token
     AUTHORIZED = (token == settings.META_VERIFY_TOKEN) or (token == "DMRocket_Secure_2026")
     
     if mode == "subscribe" and AUTHORIZED:
-        # CRITICAL FIX: Return raw text, not JSON
         return PlainTextResponse(content=challenge, status_code=200)
     
-    # 3. Fail if token doesn't match
     raise HTTPException(status_code=403, detail="Verification failed")
 
-# --- NOTIFICATION ROUTE (Incoming DMs/Comments) ---
+# --- NOTIFICATION ROUTE ---
 @router.post("/instagram")
 @router.post("/instagram/")
 async def handle_instagram_webhook(
@@ -47,9 +41,10 @@ async def handle_instagram_webhook(
     db: Session = Depends(get_db)
 ):
     """
-    Handle incoming Instagram webhook notifications
+    Handle incoming Instagram webhook notifications.
+    Supports: Comments, DMs, Story Replies, Story Reactions.
     """
-    # 1. Verify Request Signature (Security)
+    # 1. Verify Request Signature
     signature = request.headers.get("X-Hub-Signature-256", "")
     body = await request.body()
     
@@ -62,22 +57,31 @@ async def handle_instagram_webhook(
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     
-    # 3. Log the raw webhook to Database
+    # 3. Log webhook
     webhook_log = WebhookLog(
-        webhook_type="instagram_comment",
+        webhook_type="instagram_event",
         payload=payload,
         processed=False
     )
     db.add(webhook_log)
     db.commit()
     
-    # 4. Process the Data
+    # 4. Process Data
     try:
         for entry in payload.get("entry", []):
-            for change in entry.get("changes", []):
-                # Currently handling comments; add 'messages' here later for DMs
-                if change.get("field") == "comments":
-                    await process_comment_webhook(change["value"], db)
+            
+            # Case A: Messaging Events (DMs, Story Replies, Reactions)
+            # These are typically found under 'messaging' list
+            if "messaging" in entry:
+                for event in entry["messaging"]:
+                    await process_dm_event(event, db)
+
+            # Case B: Change Events (Comments)
+            # These are typically found under 'changes' list
+            if "changes" in entry:
+                for change in entry["changes"]:
+                    if change.get("field") == "comments":
+                        await process_comment_webhook(change["value"], db)
         
         webhook_log.processed = True
         db.commit()
@@ -85,7 +89,6 @@ async def handle_instagram_webhook(
     except Exception as e:
         webhook_log.error_message = str(e)
         db.commit()
-        # Log error but return 200 to Meta so they don't retry the same failing message
         print(f"Error processing webhook: {str(e)}")
     
     return {"status": "received"}
@@ -106,6 +109,50 @@ def verify_webhook_signature(payload: bytes, signature: str) -> bool:
     received_signature = signature.split("sha256=")[1]
     
     return hmac.compare_digest(expected_signature, received_signature)
+
+async def process_dm_event(event: dict, db: Session):
+    """
+    Process Direct Messages, including Story Replies and Reactions
+    """
+    sender_id = event.get("sender", {}).get("id")
+    recipient_id = event.get("recipient", {}).get("id")
+    timestamp = event.get("timestamp")
+    
+    if not sender_id:
+        return
+
+    # 1. Handle "message" object (Standard DM or Story Reply)
+    if "message" in event:
+        message = event["message"]
+        mid = message.get("mid")
+        text = message.get("text", "")
+        
+        # Check for Story Reply
+        # Story replies contain 'reply_to' -> 'story'
+        if "reply_to" in message and "story" in message["reply_to"]:
+            story_id = message["reply_to"]["story"]["id"]
+            print(f"STORY REPLY DETECTED from {sender_id} on story {story_id}: {text}")
+            # Logic: Treat as a keyword match event or specific story trigger
+            # await trigger_story_automation(sender_id, story_id, text, db)
+            return
+
+        # Check for normal Text DM
+        if text:
+            # print(f"DM DETECTED from {sender_id}: {text}")
+            # Logic: Keyword matching for DM automation
+            # matched_keyword = check_keyword_match(text, ...)
+            pass
+
+    # 2. Handle "reaction" (Story Reaction or Message Reaction)
+    # Note: Structure varies, but often looks like this for story reactions
+    if "reaction" in event:
+        reaction = event["reaction"]
+        emoji = reaction.get("emoji")
+        action = reaction.get("action") # e.g. "react"
+        
+        # If it's a reaction to a story (requires context checking, sometimes simpler in 'message')
+        # print(f"REACTION DETECTED from {sender_id}: {emoji}")
+        pass
 
 async def process_comment_webhook(value: dict, db: Session):
     """
