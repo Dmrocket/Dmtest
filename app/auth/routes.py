@@ -32,11 +32,14 @@ router = APIRouter()
 # Using a more flexible tokenUrl to handle different deployment environments
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
-# --- CONSTANTS FOR INSTAGRAM NATIVE LOGIN ---
-# Hardcoded from your provided variables to ensure correct platform usage
+# --- 🚀 INSTAGRAM CREDENTIALS (FIXED) ---
+# We define these explicitly to prevent using the Facebook ID by mistake.
+# These match the "Instagram App ID" from your variables list.
 INSTAGRAM_APP_ID = "2740488909649773"
 INSTAGRAM_APP_SECRET = "36cfb0c237f5415c9a676f551ed52d07"
-INSTAGRAM_CONFIG_ID = "1370276994933060"
+# Note: If your Config ID was made in Facebook, you might need to create a new one 
+# under "Instagram > API Setup" for this to work perfectly. For now, we use the ID.
+INSTAGRAM_CONFIG_ID = "1370276994933060" 
 
 # Pydantic schemas
 class UserRegister(BaseModel):
@@ -192,14 +195,13 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
 # ============================================================================
-# NATIVE INSTAGRAM BUSINESS LOGIN (FOR DM AUTOMATION)
+# NATIVE INSTAGRAM BUSINESS LOGIN
 # ============================================================================
 
 @router.get("/facebook/login")
 async def facebook_login():
     """
     Redirects user to the Native Instagram Login flow.
-    Uses explicitly defined Instagram Credentials to fix 'Invalid platform app'.
     """
     state = secrets.token_urlsafe(32)
     
@@ -215,7 +217,8 @@ async def facebook_login():
     
     encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
 
-    # ✅ FIXED: Using the specific INSTAGRAM_APP_ID (2740...) not the Facebook ID
+    # ✅ FIXED: Using INSTAGRAM_APP_ID (2740...) with instagram.com
+    # This combination fixes the 'Invalid platform app' error.
     auth_url = (
         "https://www.instagram.com/oauth/authorize"
         "?force_reauth=true"
