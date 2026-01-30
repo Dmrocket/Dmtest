@@ -32,14 +32,9 @@ router = APIRouter()
 # Using a more flexible tokenUrl to handle different deployment environments
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
-# --- 🚀 INSTAGRAM CREDENTIALS (FIXED) ---
-# We define these explicitly to prevent using the Facebook ID by mistake.
-# These match the "Instagram App ID" from your variables list.
-INSTAGRAM_APP_ID = "2740488909649773"
-INSTAGRAM_APP_SECRET = "36cfb0c237f5415c9a676f551ed52d07"
-# Note: If your Config ID was made in Facebook, you might need to create a new one 
-# under "Instagram > API Setup" for this to work perfectly. For now, we use the ID.
-INSTAGRAM_CONFIG_ID = "1370276994933060" 
+# --- CONFIGURATION ---
+# The Configuration ID for Instagram Business Login (Native Flow)
+INSTAGRAM_CONFIG_ID = "1370276994933060"
 
 # Pydantic schemas
 class UserRegister(BaseModel):
@@ -195,7 +190,7 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
     return current_user
 
 # ============================================================================
-# NATIVE INSTAGRAM BUSINESS LOGIN
+# NATIVE INSTAGRAM BUSINESS LOGIN (FOR DM AUTOMATION)
 # ============================================================================
 
 @router.get("/facebook/login")
@@ -217,12 +212,12 @@ async def facebook_login():
     
     encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
 
-    # ✅ FIXED: Using INSTAGRAM_APP_ID (2740...) with instagram.com
-    # This combination fixes the 'Invalid platform app' error.
+    # ✅ FIXED: Uses settings.META_APP_ID. 
+    # Ensure your Railway 'META_APP_ID' is set to your INSTAGRAM APP ID (2740...).
     auth_url = (
         "https://www.instagram.com/oauth/authorize"
         "?force_reauth=true"
-        f"&client_id={INSTAGRAM_APP_ID}"
+        f"&client_id={settings.META_APP_ID}"
         f"&redirect_uri={encoded_redirect_uri}"
         f"&config_id={INSTAGRAM_CONFIG_ID}"
         "&response_type=code"
@@ -251,12 +246,12 @@ async def facebook_callback(
 
     async with httpx.AsyncClient() as client:
         # 1️⃣ Exchange code → Short-Lived Access Token
-        # ✅ FIXED: Using INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET
+        # ✅ FIXED: Uses settings.META_APP_ID and META_APP_SECRET
         token_resp = await client.post(
             "https://api.instagram.com/oauth/access_token",
             data={
-                "client_id": INSTAGRAM_APP_ID,
-                "client_secret": INSTAGRAM_APP_SECRET,
+                "client_id": settings.META_APP_ID,
+                "client_secret": settings.META_APP_SECRET,
                 "grant_type": "authorization_code",
                 "redirect_uri": settings.FACEBOOK_REDIRECT_URI,
                 "code": code,
@@ -277,7 +272,7 @@ async def facebook_callback(
             "https://graph.instagram.com/access_token",
             params={
                 "grant_type": "ig_exchange_token",
-                "client_secret": INSTAGRAM_APP_SECRET,
+                "client_secret": settings.META_APP_SECRET,
                 "access_token": short_lived_token
             }
         )
