@@ -12,7 +12,7 @@ from datetime import datetime
 # Routers
 from app.auth.routes import router as auth_router
 from app.automations.routes import router as automations_router
-from app.instagram.routes import router as instagram_router
+from app.instagram.webhooks import router as webhook_router
 # This now correctly points to the file containing the webhook logic
 from app.instagram.webhooks import router as webhook_router 
 from app.payments.routes import router as payments_router

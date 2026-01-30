@@ -15,7 +15,7 @@ from app.config import settings
 # This router handles requests at /api/webhooks/instagram
 router = APIRouter()
 
-@router.get("/instagram")
+@router.get("/instagram/")
 async def verify_webhook(request: Request):
     """
     Verify Instagram webhook subscription
