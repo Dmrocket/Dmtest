@@ -32,6 +32,12 @@ router = APIRouter()
 # Using a more flexible tokenUrl to handle different deployment environments
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
 
+# --- CONSTANTS FOR INSTAGRAM NATIVE LOGIN ---
+# Hardcoded from your provided variables to ensure correct platform usage
+INSTAGRAM_APP_ID = "2740488909649773"
+INSTAGRAM_APP_SECRET = "36cfb0c237f5415c9a676f551ed52d07"
+INSTAGRAM_CONFIG_ID = "1370276994933060"
+
 # Pydantic schemas
 class UserRegister(BaseModel):
     email: EmailStr
@@ -193,13 +199,11 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
 async def facebook_login():
     """
     Redirects user to the Native Instagram Login flow.
-    Integrates with the Configuration ID 1370276994933060.
+    Uses explicitly defined Instagram Credentials to fix 'Invalid platform app'.
     """
     state = secrets.token_urlsafe(32)
-    # CONFIG ID is required for the native 2026 flow to work with custom permissions
-    config_id = "1370276994933060"
     
-    # Scopes must be present in your Dashboard Configuration
+    # Scopes matching your Dashboard Configuration
     scope = (
         "instagram_business_basic,"
         "instagram_business_manage_messages,"
@@ -211,13 +215,13 @@ async def facebook_login():
     
     encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
 
-    # ✅ FIXED ENDPOINT: Native Instagram Login with config_id
+    # ✅ FIXED: Using the specific INSTAGRAM_APP_ID (2740...) not the Facebook ID
     auth_url = (
         "https://www.instagram.com/oauth/authorize"
         "?force_reauth=true"
-        f"&client_id={settings.META_APP_ID}"
+        f"&client_id={INSTAGRAM_APP_ID}"
         f"&redirect_uri={encoded_redirect_uri}"
-        f"&config_id={config_id}"
+        f"&config_id={INSTAGRAM_CONFIG_ID}"
         "&response_type=code"
         f"&scope={scope}"
         f"&state={state}" 
@@ -234,7 +238,7 @@ async def facebook_callback(
 ):
     """
     Step 2: Instagram redirects here. 
-    Exchanges code for a Long-Lived User Token.
+    Exchanges code for a Long-Lived User Token using Instagram Credentials.
     """
     logger.info("Instagram Native OAuth callback received")
 
@@ -244,11 +248,12 @@ async def facebook_callback(
 
     async with httpx.AsyncClient() as client:
         # 1️⃣ Exchange code → Short-Lived Access Token
+        # ✅ FIXED: Using INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET
         token_resp = await client.post(
             "https://api.instagram.com/oauth/access_token",
             data={
-                "client_id": settings.META_APP_ID,
-                "client_secret": settings.META_APP_SECRET,
+                "client_id": INSTAGRAM_APP_ID,
+                "client_secret": INSTAGRAM_APP_SECRET,
                 "grant_type": "authorization_code",
                 "redirect_uri": settings.FACEBOOK_REDIRECT_URI,
                 "code": code,
@@ -269,7 +274,7 @@ async def facebook_callback(
             "https://graph.instagram.com/access_token",
             params={
                 "grant_type": "ig_exchange_token",
-                "client_secret": settings.META_APP_SECRET,
+                "client_secret": INSTAGRAM_APP_SECRET,
                 "access_token": short_lived_token
             }
         )
