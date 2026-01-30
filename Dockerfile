@@ -1,23 +1,28 @@
-# backend/Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# 1. Install system dependencies for Postgres and building C-extensions
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
-    libpq-dev \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Copy requirements first (improves build speed via caching)
+# Copy requirements first for caching
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 3. Copy only the backend code
-# Since the Docker context in docker-compose is './backend', 
-# '.' here refers to the contents of the backend folder.
+# Copy application code
 COPY . .
 
-# 4. Ensure the port is dynamic for Railway
-# Note: We run main:app because the Dockerfile is now inside the backend folder
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Create non-root user
+RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Default command (can be overridden in docker-compose)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
