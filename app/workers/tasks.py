@@ -85,7 +85,23 @@ def process_comment_and_send_dm(self, dm_log_id: int):
             db.commit()
             return
         
-        access_token = decrypt_token(user.encrypted_access_token)
+        # Decrypt token
+        raw_token = decrypt_token(user.encrypted_access_token)
+        
+        # --- CRITICAL FIX: Token Sanitization ---
+        # This handles cases where the token is accidentally a byte string or a string representation of bytes
+        access_token = raw_token
+        
+        if isinstance(access_token, bytes):
+            access_token = access_token.decode('utf-8')
+            
+        # Remove "b'...'" wrapper if it exists in the string (common Python encryption artifact)
+        if isinstance(access_token, str) and access_token.startswith("b'") and access_token.endswith("'"):
+            access_token = access_token[2:-1]
+            
+        # Ensure we have a clean string before sending
+        access_token = str(access_token).strip()
+
         client = InstagramAPIClient(access_token)
         
         # Send DM
@@ -149,7 +165,12 @@ def subscribe_to_instagram_webhooks(user_id: int, automation_id: int):
         if not user or not user.encrypted_access_token:
             return
         
-        access_token = decrypt_token(user.encrypted_access_token)
+        # Decrypt and Sanitize Token
+        raw_token = decrypt_token(user.encrypted_access_token)
+        access_token = raw_token
+        if isinstance(access_token, str) and access_token.startswith("b'") and access_token.endswith("'"):
+            access_token = access_token[2:-1]
+            
         client = InstagramAPIClient(access_token)
         
         # Subscribe to webhooks

@@ -16,7 +16,9 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # Token encryption (for Instagram tokens)
 try:
     # Fernet key must be 32 url-safe base64-encoded bytes (44 characters)
-    cipher_suite = Fernet(settings.ENCRYPTION_KEY.encode())
+    # We strip any whitespace just in case
+    key_bytes = settings.ENCRYPTION_KEY.strip().encode()
+    cipher_suite = Fernet(key_bytes)
 except Exception as e:
     logger.warning(f"Invalid ENCRYPTION_KEY provided. Generating a temporary one for this session. Error: {e}")
     cipher_suite = Fernet(Fernet.generate_key())
@@ -54,8 +56,20 @@ def verify_token(token: str) -> dict | None:
 
 def encrypt_token(token: str) -> str:
     """Encrypt Instagram access token"""
+    if not token:
+        return ""
+    # Ensure we are encrypting bytes, then returning a string
     return cipher_suite.encrypt(token.encode()).decode()
 
 def decrypt_token(encrypted_token: str) -> str:
     """Decrypt Instagram access token"""
-    return cipher_suite.decrypt(encrypted_token.encode()).decode()
+    if not encrypted_token:
+        return ""
+    try:
+        # Decrypt bytes, then decode back to string
+        return cipher_suite.decrypt(encrypted_token.encode()).decode()
+    except Exception as e:
+        logger.error(f"Token decryption failed: {e}")
+        # Return empty string or raise error depending on preference. 
+        # Returning empty string prevents crash but will fail auth check later.
+        return ""
