@@ -66,3 +66,5 @@ def health_check():
 @app.get("/")
 def read_root():
     return {"message": "DMRocket API 🚀"}
+
+# Force CORS update v3
