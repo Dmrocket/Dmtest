@@ -1,6 +1,7 @@
 """
 Celery background tasks for async processing
 """
+import os
 from celery import Celery
 from celery.schedules import crontab
 from sqlalchemy.orm import Session
@@ -18,12 +19,12 @@ from app.auth.utils import decrypt_token
 from app.instagram.service import InstagramAPIClient
 
 logger = logging.getLogger(__name__)
-
+redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 # Initialize Celery
 celery_app = Celery(
     "instagram_automation",
-    broker=settings.CELERY_BROKER_URL,
-    backend=settings.CELERY_RESULT_BACKEND,
+    broker=redis_url,
+    backend=redis_url
 )
 
 celery_app.conf.update(
