@@ -88,6 +88,21 @@ def process_comment_and_send_dm(self, dm_log_id: int):
         # Decrypt token
         raw_token = decrypt_token(user.encrypted_access_token)
         
+        # --- DEBUG LOGGING START (Added for diagnosis) ---
+        if raw_token:
+            token_len = len(raw_token)
+            # Create a masked preview (first 5 chars ... last 5 chars)
+            preview = f"{raw_token[:5]}...{raw_token[-5:]}" if token_len > 10 else "SHORT_TOKEN"
+            
+            logger.info(f"[DEBUG] Decrypted Token Length: {token_len}")
+            logger.info(f"[DEBUG] Decrypted Token Preview: {preview}")
+            
+            if str(raw_token).startswith("b'"):
+                logger.warning("[DEBUG] WARNING: Token starts with b' (Byte wrapper detected)")
+        else:
+            logger.error("[DEBUG] CRITICAL: Decrypted Token is EMPTY or None! Check ENCRYPTION_KEY match.")
+        # --- DEBUG LOGGING END ---
+
         # --- CRITICAL FIX: Token Sanitization ---
         # This handles cases where the token is accidentally a byte string or a string representation of bytes
         access_token = raw_token
@@ -98,6 +113,7 @@ def process_comment_and_send_dm(self, dm_log_id: int):
         # Remove "b'...'" wrapper if it exists in the string (common Python encryption artifact)
         if isinstance(access_token, str) and access_token.startswith("b'") and access_token.endswith("'"):
             access_token = access_token[2:-1]
+            logger.info("[DEBUG] Removed b'' wrapper from token.")
             
         # Ensure we have a clean string before sending
         access_token = str(access_token).strip()
