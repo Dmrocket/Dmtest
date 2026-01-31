@@ -36,10 +36,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="DMRocket API", version="1.0.0", lifespan=lifespan)
 
 # ✅ FIXED: Use settings.CORS_ORIGINS instead of ["*"]
-# This is required when allow_credentials=True to prevent CORS errors
+# This is REQUIRED to make login work. Browsers block ["*"] when credentials are true.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=settings.CORS_ORIGINS, 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
