@@ -382,3 +382,53 @@ Dmtest-main
 └─ requirements.txt
 
 ```
+```
+Dmtest-main
+├─ .dockerignore
+├─ Dockerfile
+├─ alembic
+│  ├─ README
+│  ├─ env.py
+│  ├─ script.py.mako
+│  └─ versions
+│     ├─ 20260201_add_reply_column.py
+│     └─ 59008a36739b_initial_schema.py
+├─ alembic.ini
+├─ app
+│  ├─ __init__.py
+│  ├─ admin
+│  │  ├─ __init__.py
+│  │  └─ routes.py
+│  ├─ affiliates
+│  │  ├─ __init__.py
+│  │  └─ routes.py
+│  ├─ auth
+│  │  ├─ __init__.py
+│  │  ├─ routes.py
+│  │  └─ utils.py
+│  ├─ automations
+│  │  ├─ __init__.py
+│  │  └─ routes.py
+│  ├─ config.py
+│  ├─ database.py
+│  ├─ instagram
+│  │  ├─ __init__.py
+│  │  ├─ routes.py
+│  │  ├─ service.py
+│  │  └─ webhooks.py
+│  ├─ models.py
+│  ├─ payments
+│  │  ├─ __init__.py
+│  │  └─ routes.py
+│  └─ workers
+│     ├─ __init__.py
+│     └─ tasks.py
+├─ celerybeat-schedule
+├─ dmrocket
+├─ dmrocket.pub
+├─ docker-compose.yml
+├─ main.py
+├─ readme.md
+└─ requirements.txt
+
+```
