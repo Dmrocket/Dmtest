@@ -1,6 +1,7 @@
 """
 Configuration management using environment variables
 """
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 from functools import lru_cache
@@ -9,23 +10,26 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Instagram Automation SaaS"
     DEBUG: bool = False
-    SECRET_KEY: str 
+    SECRET_KEY: str # General app secret
     
-    # API URL
+    # API URL - REQUIRED for Instagram Callbacks
+    # Set this to https://dmtest-production.up.railway.app in Railway
     API_URL: str = "http://localhost:8000"
     
-    # Database
+    # Database (Alembic will use DIRECT_DATABASE_URL)
     DATABASE_URL: str
     DIRECT_DATABASE_URL: str
     
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
     # Meta/Instagram
     META_APP_ID: str
     META_APP_SECRET: str
     META_VERIFY_TOKEN: str
     INSTAGRAM_GRAPH_API_VERSION: str = "v18.0"
+    
+    # This must match exactly what you put in the Facebook App Dashboard
     INSTAGRAM_REDIRECT_URI: str = "https://dmtest-production.up.railway.app/api/instagram/callback"
     
     # JWT
@@ -43,22 +47,16 @@ class Settings(BaseSettings):
     FREE_TRIAL_DAYS: int = 15
     PRO_PLAN_PRICE: float = 29.99
     
-    # Rate Limiting
+    # Rate Limiting (Instagram API)
     INSTAGRAM_RATE_LIMIT_PER_HOUR: int = 200
     DM_RATE_LIMIT_PER_DAY: int = 100
     
     # Workers
-    CELERY_BROKER_URL: Optional[str] = None
-    CELERY_RESULT_BACKEND: Optional[str] = None
+    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", REDIS_URL)
+    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
     
-    # ✅ FIXED: Explicitly listed all allowed domains
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000", 
-        "http://localhost:5173", 
-        "https://app.dmrocket.co", 
-        "https://dmrocket.co",
-        "https://www.dmrocket.co"
-    ]
+    # CORS
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "https://app.dmrocket.co", "https://dmrocket.co"]
     
     # Admin
     ADMIN_EMAIL: str
