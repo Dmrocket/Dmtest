@@ -33,8 +33,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DMRocket API", version="1.0.0", lifespan=lifespan)
 
-# ✅ FIXED: Use 'allow_origin_regex' to match ALL origins.
-# This prevents CORS errors even if the exact domain string varies slightly.
+# ✅ FIXED: Regex CORS to allow all secure connections
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex="https?://.*",

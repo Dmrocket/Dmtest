@@ -1,7 +1,7 @@
 """
 Configuration management using environment variables
 """
-import os  # ✅ Added import os
+import os  # ✅ IMPORT REQUIRED
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 from functools import lru_cache
@@ -19,12 +19,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     DIRECT_DATABASE_URL: str
     
-    # ✅ FIXED: Redis & Workers Configuration
-    # Uses the Railway 'REDIS_URL' env variable. Falls back to localhost only for local dev.
+    # ✅ FIXED: Redis Configuration
+    # Falls back to localhost ONLY if the Env Var is missing (Local dev)
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
-    # Workers (Celery)
-    # Defaults to the REDIS_URL if specific Celery vars aren't set
+    # Workers
+    # Defaults to REDIS_URL so Celery works on Railway automatically
     CELERY_BROKER_URL: Optional[str] = os.getenv("CELERY_BROKER_URL", REDIS_URL)
     CELERY_RESULT_BACKEND: Optional[str] = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
     
@@ -55,7 +55,6 @@ class Settings(BaseSettings):
     DM_RATE_LIMIT_PER_DAY: int = 100
     
     # CORS Origins
-    # We keep this for reference, but main.py will use the regex now
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000", 
         "http://localhost:5173", 
