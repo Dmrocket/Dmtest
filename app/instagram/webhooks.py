@@ -25,8 +25,8 @@ async def verify_webhook(request: Request):
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
     
-    # Check both env var and backup token
-    AUTHORIZED = (token == settings.META_VERIFY_TOKEN) or (token == "DMRocket_Secure_2026")
+    # Secure check against settings
+    AUTHORIZED = (token == settings.META_VERIFY_TOKEN)
     
     if mode == "subscribe" and AUTHORIZED:
         return PlainTextResponse(content=challenge, status_code=200)
@@ -128,30 +128,22 @@ async def process_dm_event(event: dict, db: Session):
         text = message.get("text", "")
         
         # Check for Story Reply
-        # Story replies contain 'reply_to' -> 'story'
         if "reply_to" in message and "story" in message["reply_to"]:
             story_id = message["reply_to"]["story"]["id"]
-            print(f"STORY REPLY DETECTED from {sender_id} on story {story_id}: {text}")
             # Logic: Treat as a keyword match event or specific story trigger
             # await trigger_story_automation(sender_id, story_id, text, db)
             return
 
         # Check for normal Text DM
         if text:
-            # print(f"DM DETECTED from {sender_id}: {text}")
             # Logic: Keyword matching for DM automation
-            # matched_keyword = check_keyword_match(text, ...)
             pass
 
-    # 2. Handle "reaction" (Story Reaction or Message Reaction)
-    # Note: Structure varies, but often looks like this for story reactions
+    # 2. Handle "reaction"
     if "reaction" in event:
         reaction = event["reaction"]
         emoji = reaction.get("emoji")
-        action = reaction.get("action") # e.g. "react"
-        
-        # If it's a reaction to a story (requires context checking, sometimes simpler in 'message')
-        # print(f"REACTION DETECTED from {sender_id}: {emoji}")
+        action = reaction.get("action") 
         pass
 
 async def process_comment_webhook(value: dict, db: Session):
@@ -200,7 +192,8 @@ async def process_comment_webhook(value: dict, db: Session):
                 automation_id=automation.id,
                 instagram_commenter_id=commenter_id,
                 instagram_commenter_username=commenter_username,
-                comment_id=comment_id,
+                # THIS IS THE CRITICAL FIELD NEEDED FOR PRIVATE REPLIES
+                comment_id=comment_id, 
                 comment_text=comment_text,
                 matched_keyword=matched_keyword,
                 message_sent=automation.message_text,
@@ -213,6 +206,7 @@ async def process_comment_webhook(value: dict, db: Session):
             db.commit()
             db.refresh(dm_log)
             
+            # Use delay() to send to Celery
             from app.workers.tasks import process_comment_and_send_dm
             process_comment_and_send_dm.delay(dm_log.id)
 

@@ -1,6 +1,3 @@
-"""
-Celery background tasks for async processing
-"""
 import os
 from celery import Celery
 from celery.schedules import crontab
@@ -19,7 +16,10 @@ from app.auth.utils import decrypt_token
 from app.instagram.service import InstagramAPIClient
 
 logger = logging.getLogger(__name__)
-redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+# --- FIX: Use settings directly to ensure we get the Railway variable ---
+redis_url = settings.REDIS_URL
+
 # Initialize Celery
 celery_app = Celery(
     "instagram_automation",
@@ -33,9 +33,11 @@ celery_app.conf.update(
     result_serializer='json',
     timezone='UTC',
     enable_utc=True,
+    # Add connection retry to prevent startup crashes
+    broker_connection_retry_on_startup=True
 )
-print("BROKER =", celery_app.conf.broker_url)
-print("BACKEND =", celery_app.conf.result_backend)
+
+print(f"DEBUG: Celery Broker URL: {redis_url}")
 
 def get_db_session():
     """Get database session for tasks"""
@@ -70,8 +72,8 @@ def process_comment_and_send_dm(self, dm_log_id: int):
         
         # Check rate limits
         if not check_rate_limit(user.id, "dm_send", db):
-            # Retry later
-            raise self.retry(countdown=3600)  # Retry in 1 hour
+            # Retry later (in 1 hour)
+            raise self.retry(countdown=3600)
         
         # Get access token
         if not user.encrypted_access_token:
@@ -88,15 +90,18 @@ def process_comment_and_send_dm(self, dm_log_id: int):
         
         # Send DM
         try:
+            # --- UPDATED CALL: Passing comment_id for Private Reply ---
             result = client.send_message(
-                dm_log.instagram_commenter_id,
-                dm_log.message_sent,
-                automation.message_media_url
+                recipient_id=dm_log.instagram_commenter_id,
+                message_text=dm_log.message_sent,
+                media_url=automation.message_media_url,
+                comment_id=dm_log.comment_id  # <--- CRITICAL FIX
             )
             
             # Update DM log
             dm_log.dm_status = DMStatus.SENT
-            dm_log.instagram_message_id = result.get("id")
+            # Store the message ID from the response (can vary slightly in key name)
+            dm_log.instagram_message_id = result.get("id") or result.get("message_id")
             dm_log.sent_at = datetime.utcnow()
             
             # Update automation stats
@@ -121,6 +126,7 @@ def process_comment_and_send_dm(self, dm_log_id: int):
             
             # Retry if not max retries
             if dm_log.retry_count < 3:
+                # Exponential backoff: 300s, 600s, etc.
                 raise self.retry(countdown=300 * dm_log.retry_count, exc=e)
         
         db.commit()
