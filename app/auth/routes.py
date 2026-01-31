@@ -3,14 +3,11 @@ Authentication routes and Instagram Native Business OAuth integration
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr, Field
 import secrets
-import httpx
 import logging
-from urllib.parse import quote
 from app.database import get_db
 from app.models import User, UserRole, SubscriptionStatus
 from app.auth.utils import (
@@ -18,9 +15,7 @@ from app.auth.utils import (
     verify_password, 
     create_access_token, 
     create_refresh_token,
-    verify_token,
-    encrypt_token,
-    decrypt_token
+    verify_token
 )
 from app.config import settings
 
@@ -31,10 +26,6 @@ router = APIRouter()
 
 # Using a more flexible tokenUrl to handle different deployment environments
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login", auto_error=False)
-
-# --- CONFIGURATION ---
-# The Configuration ID for Instagram Business Login (Native Flow)
-INSTAGRAM_CONFIG_ID = "1370276994933060"
 
 # Pydantic schemas
 class UserRegister(BaseModel):
@@ -188,119 +179,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_active_user)):
     return current_user
-
-# ============================================================================
-# NATIVE INSTAGRAM BUSINESS LOGIN (FOR DM AUTOMATION)
-# ============================================================================
-
-@router.get("/facebook/login")
-async def facebook_login():
-    """
-    Redirects user to the Native Instagram Login flow.
-    """
-    state = secrets.token_urlsafe(32)
-    
-    # Scopes matching your Dashboard Configuration
-    scope = (
-        "instagram_business_basic,"
-        "instagram_business_manage_messages,"
-        "instagram_business_manage_comments,"
-        "instagram_business_content_publish,"
-        "pages_show_list,"
-        "pages_read_engagement"
-    )
-    
-    encoded_redirect_uri = quote(settings.FACEBOOK_REDIRECT_URI, safe="")
-
-    # ✅ FIXED: Uses settings.META_APP_ID. 
-    # Ensure your Railway 'META_APP_ID' is set to your INSTAGRAM APP ID (2740...).
-    auth_url = (
-        "https://www.instagram.com/oauth/authorize"
-        "?force_reauth=true"
-        f"&client_id={settings.META_APP_ID}"
-        f"&redirect_uri={encoded_redirect_uri}"
-        f"&config_id={INSTAGRAM_CONFIG_ID}"
-        "&response_type=code"
-        f"&scope={scope}"
-        f"&state={state}" 
-    )
-
-    return RedirectResponse(auth_url)
-    
-
-@router.get("/facebook/callback")
-async def facebook_callback(
-    code: str,
-    state: str,
-    db: Session = Depends(get_db),
-):
-    """
-    Step 2: Instagram redirects here. 
-    Exchanges code for a Long-Lived User Token using Instagram Credentials.
-    """
-    logger.info("Instagram Native OAuth callback received")
-
-    # Clean the code: Instagram appends '#_' which can break token exchange
-    if code and code.endswith("#_"):
-        code = code[:-2]
-
-    async with httpx.AsyncClient() as client:
-        # 1️⃣ Exchange code → Short-Lived Access Token
-        # ✅ FIXED: Uses settings.META_APP_ID and META_APP_SECRET
-        token_resp = await client.post(
-            "https://api.instagram.com/oauth/access_token",
-            data={
-                "client_id": settings.META_APP_ID,
-                "client_secret": settings.META_APP_SECRET,
-                "grant_type": "authorization_code",
-                "redirect_uri": settings.FACEBOOK_REDIRECT_URI,
-                "code": code,
-            },
-        )
-
-        token_data = token_resp.json()
-        short_lived_token = token_data.get("access_token")
-
-        if not short_lived_token:
-            logger.error(f"Token exchange failed: {token_data}")
-            return RedirectResponse(
-                url=f"{settings.FRONTEND_URL}/dashboard?connected=false&error=token_failed"
-            )
-
-        # 2️⃣ Exchange Short-Lived → Long-Lived Token (60 Days)
-        long_lived_resp = await client.get(
-            "https://graph.instagram.com/access_token",
-            params={
-                "grant_type": "ig_exchange_token",
-                "client_secret": settings.META_APP_SECRET,
-                "access_token": short_lived_token
-            }
-        )
-        
-        long_lived_data = long_lived_resp.json()
-        long_lived_token = long_lived_data.get("access_token", short_lived_token)
-
-        # 3️⃣ Fetch Instagram Account Info
-        profile_resp = await client.get(
-            "https://graph.instagram.com/v19.0/me",
-            params={
-                "fields": "id,username",
-                "access_token": long_lived_token
-            },
-        )
-        
-        profile_data = profile_resp.json()
-        ig_user_id = profile_data.get("id")
-        ig_username = profile_data.get("username")
-
-        if not ig_user_id:
-            logger.error("Failed to retrieve Instagram ID from profile.")
-            return RedirectResponse(url=f"{settings.FRONTEND_URL}/dashboard?error=profile_failed")
-
-        # 4️⃣ Success! Redirect to frontend
-        return RedirectResponse(
-            url=f"{settings.FRONTEND_URL}/dashboard?connected=true&ig_username={ig_username}&ig_id={ig_user_id}"
-        )
 
 @router.post("/refresh")
 async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):

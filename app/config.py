@@ -27,7 +27,10 @@ class Settings(BaseSettings):
     META_APP_SECRET: str
     META_VERIFY_TOKEN: str
     INSTAGRAM_GRAPH_API_VERSION: str = "v18.0"
-    FACEBOOK_REDIRECT_URI: str
+    
+    # This must match exactly what you put in the Facebook App Dashboard
+    INSTAGRAM_REDIRECT_URI: str = "https://dmtest-production.up.railway.app/api/instagram/callback"
+    
     # JWT
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
@@ -52,7 +55,7 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: Optional[str] = None
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "https://app.dmrocket.co", "https://dmrocket.co"]
     
     # Admin
     ADMIN_EMAIL: str
