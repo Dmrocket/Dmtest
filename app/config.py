@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: Optional[str] = None
     CELERY_RESULT_BACKEND: Optional[str] = None
     
-    # ✅ FIXED: Explicitly listed allowed domains (required for allow_credentials=True)
+    # ✅ FIXED: Explicitly listed all allowed domains
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000", 
         "http://localhost:5173", 
