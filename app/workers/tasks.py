@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 celery_app = Celery(
     "instagram_automation",
     broker=settings.CELERY_BROKER_URL,
-    backend=settings.CELERY_RESULT_BACKEND
+    backend=settings.CELERY_RESULT_BACKEND,
 )
 
 celery_app.conf.update(
@@ -33,6 +33,8 @@ celery_app.conf.update(
     timezone='UTC',
     enable_utc=True,
 )
+print("BROKER =", celery_app.conf.broker_url)
+print("BACKEND =", celery_app.conf.result_backend)
 
 def get_db_session():
     """Get database session for tasks"""

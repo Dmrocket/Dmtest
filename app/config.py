@@ -1,7 +1,7 @@
 """
 Configuration management using environment variables
 """
-import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 from functools import lru_cache
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     DIRECT_DATABASE_URL: str
     
     # Redis
-    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    REDIS_URL: str 
     
     # Meta/Instagram
     META_APP_ID: str
@@ -51,9 +51,7 @@ class Settings(BaseSettings):
     INSTAGRAM_RATE_LIMIT_PER_HOUR: int = 200
     DM_RATE_LIMIT_PER_DAY: int = 100
     
-    # Workers
-    CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", REDIS_URL)
-    CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+    
     
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "https://app.dmrocket.co", "https://dmrocket.co"]
@@ -77,6 +75,13 @@ class Settings(BaseSettings):
         extra ="ignore",         
         case_sensitive = True
     )
+def model_post_init(self, __context):
+    if not self.REDIS_URL:
+            raise RuntimeError("REDIS_URL is not set")
+
+        # Automatically wire Celery to Redis
+    self.CELERY_BROKER_URL = self.REDIS_URL
+    self.CELERY_RESULT_BACKEND = self.REDIS_URL
 
 @lru_cache()
 def get_settings() -> Settings:

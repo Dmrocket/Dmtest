@@ -81,7 +81,10 @@ class User(Base):
     # Relationships
     automations = relationship("Automation", back_populates="user", cascade="all, delete-orphan")
     dm_logs = relationship("DMLog", back_populates="user", cascade="all, delete-orphan")
-    referrals = relationship("Referral", foreign_keys="[Referral.referrer_id]", back_populates="referrer")
+    
+    # ✅ FIXED: Removed brackets inside the string for foreign_keys
+    referrals = relationship("Referral", foreign_keys="Referral.referrer_id", back_populates="referrer")
+    
     referred_by = relationship("User", remote_side=[id], foreign_keys=[referred_by_user_id])
     
     def is_subscription_active(self) -> bool:
