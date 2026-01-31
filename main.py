@@ -67,4 +67,4 @@ def health_check():
 def read_root():
     return {"message": "DMRocket API 🚀"}
 
-# Force CORS update v3
+# Force redeploy: Fix CORS and Login Crash v4
