@@ -7,12 +7,14 @@ from sqlalchemy import func, case, cast, Date, desc
 from pydantic import BaseModel
 from typing import List, Optional, Any
 from datetime import datetime, timedelta
+import logging
 
 from app.database import get_db
 from app.models import User, Automation, AutomationStatus, MediaType, MessageContentType, DMLog
 from app.auth.routes import get_current_active_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # --- Pydantic Schemas ---
 
@@ -122,9 +124,15 @@ async def create_automation(
     db.commit()
     db.refresh(automation)
     
-    # Subscribe to webhooks for this media (handled by background worker)
-    from app.workers.tasks import subscribe_to_instagram_webhooks
-    subscribe_to_instagram_webhooks.delay(current_user.id, automation.id)
+    # ✅ FIXED: Wrap background task in try/except to prevent 500 crashes
+    # if Redis/Celery is temporarily unavailable.
+    try:
+        from app.workers.tasks import subscribe_to_instagram_webhooks
+        subscribe_to_instagram_webhooks.delay(current_user.id, automation.id)
+    except Exception as e:
+        logger.error(f"Failed to queue webhook subscription: {str(e)}")
+        # We don't raise an exception here so the user still gets their automation created.
+        # The system can retry subscriptions later if needed.
     
     return automation
 
