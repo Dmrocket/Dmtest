@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     DIRECT_DATABASE_URL: str
     
     # ✅ FIXED: Redis & Workers Configuration
-    # We grab REDIS_URL first so we can use it as a default for Celery
+    # Uses the Railway 'REDIS_URL' env variable. Falls back to localhost only for local dev.
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     
     # Workers (Celery)
@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     DM_RATE_LIMIT_PER_DAY: int = 100
     
     # CORS Origins
+    # We keep this for reference, but main.py will use the regex now
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000", 
         "http://localhost:5173", 
