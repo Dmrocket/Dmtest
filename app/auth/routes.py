@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel, EmailStr, Field
 import secrets
 import logging
+import httpx  # Added for Instagram Token Exchange
 from app.database import get_db
 from app.models import User, UserRole, SubscriptionStatus
 from app.auth.utils import (
@@ -15,7 +16,8 @@ from app.auth.utils import (
     verify_password, 
     create_access_token, 
     create_refresh_token,
-    verify_token
+    verify_token,
+    encrypt_token # Added for saving Instagram token
 )
 from app.config import settings
 
@@ -57,6 +59,10 @@ class UserResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+class InstagramConnectRequest(BaseModel):
+    code: str
+    redirect_uri: str
 
 # Robust Dependency to get current user
 async def get_current_user(
@@ -196,3 +202,80 @@ async def refresh_token(refresh_token: str, db: Session = Depends(get_db)):
         access_token=create_access_token({"sub": str(user.id)}),
         refresh_token=create_refresh_token({"sub": str(user.id)})
     )
+
+# --- INSTAGRAM OAUTH ROUTES (ADDED TO FIX CONNECTIVITY) ---
+
+@router.post("/instagram/connect")
+async def connect_instagram(
+    request: InstagramConnectRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Exchanges authorization code for an Instagram Access Token.
+    Performs Short-Lived -> Long-Lived Token Exchange.
+    """
+    # 1. Exchange Code for Short-Lived User Token (IGAA)
+    token_url = "https://api.instagram.com/oauth/access_token"
+    data = {
+        "client_id": settings.META_APP_ID,
+        "client_secret": settings.META_APP_SECRET,
+        "grant_type": "authorization_code",
+        "redirect_uri": request.redirect_uri,
+        "code": request.code
+    }
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.post(token_url, data=data)
+            if resp.status_code != 200:
+                logger.error(f"Instagram Token Error: {resp.text}")
+                raise HTTPException(status_code=400, detail="Failed to retrieve access token from Instagram")
+            
+            token_data = resp.json()
+            short_lived_token = token_data.get("access_token")
+            user_id = token_data.get("user_id")
+            
+            if not short_lived_token:
+                raise HTTPException(status_code=400, detail="No access token in response")
+
+            # 2. Exchange for Long-Lived Token (Crucial for Automation)
+            # This extends the token validity from 1 hour to 60 days
+            exchange_url = "https://graph.instagram.com/access_token"
+            exchange_params = {
+                "grant_type": "ig_exchange_token",
+                "client_secret": settings.META_APP_SECRET,
+                "access_token": short_lived_token
+            }
+            
+            exchange_resp = await client.get(exchange_url, params=exchange_params)
+            final_token = short_lived_token
+            
+            if exchange_resp.status_code == 200:
+                exchange_data = exchange_resp.json()
+                final_token = exchange_data.get("access_token", short_lived_token)
+            else:
+                logger.warning(f"Failed to exchange for long-lived token: {exchange_resp.text}")
+
+            # 3. Get User Profile Info (to save username)
+            me_url = "https://graph.instagram.com/me"
+            me_params = {
+                "fields": "id,username,account_type",
+                "access_token": final_token
+            }
+            me_resp = await client.get(me_url, params=me_params)
+            username = "Linked Account"
+            if me_resp.status_code == 200:
+                username = me_resp.json().get("username", username)
+
+            # 4. Save to Database
+            current_user.encrypted_access_token = encrypt_token(final_token)
+            current_user.instagram_username = username
+            current_user.instagram_user_id = str(user_id)
+            db.commit()
+            
+            return {"status": "success", "username": username}
+            
+        except httpx.RequestError as e:
+            logger.error(f"Network error during Instagram connection: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error connecting to Instagram")

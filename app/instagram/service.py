@@ -10,20 +10,18 @@ class InstagramAPIClient:
         self.api_version = settings.INSTAGRAM_GRAPH_API_VERSION
         # Ensure we don't double slash if version has a leading slash
         version = self.api_version.lstrip('/')
-        self.base_url = f"https://graph.facebook.com/{version}"
+        
+        # --- CRITICAL FIX: Host Selection ---
+        # "Instagram Login" tokens (IGAA...) must be sent to graph.instagram.com
+        # "Facebook Login" tokens (EAA...) must be sent to graph.facebook.com
+        if self.access_token and self.access_token.startswith("IGAA"):
+            self.base_url = f"https://graph.instagram.com/{version}"
+        else:
+            self.base_url = f"https://graph.facebook.com/{version}"
 
     def send_message(self, recipient_id: str, message_text: str, media_url: str = None, comment_id: str = None):
         """
         Sends a message to a user.
-        
-        Args:
-            recipient_id: The Instagram Scoped User ID (IGSID).
-            message_text: The text content of the message.
-            media_url: Optional URL of an image to send.
-            comment_id: Optional ID of the comment to reply to (Private Reply).
-            
-        Returns:
-            dict: The JSON response from the Instagram API.
         """
         url = f"{self.base_url}/me/messages"
         
@@ -42,8 +40,7 @@ class InstagramAPIClient:
 
         # --- CRITICAL AUTOMATION LOGIC ---
         # If comment_id is present, we use it for a "Private Reply".
-        # This allows the bot to message the user even if they haven't messaged first,
-        # bypassing the standard 24-hour interaction window.
+        # This allows the bot to message the user even if they haven't messaged first.
         if comment_id:
             payload["recipient"] = {"comment_id": comment_id}
         else:
@@ -89,11 +86,9 @@ class InstagramAPIClient:
     def subscribe_to_webhooks(self):
         """
         Enables the 'comments' and 'mentions' fields for the user's page.
-        Note: This usually requires the 'instagram_manage_comments' permission.
         """
-        # In many cases, subscriptions are handled at the App level via the Dev Portal,
-        # but this method can be used to programmatically enable specific fields for a Page.
-        # For now, we return True as a placeholder if you are managing subscriptions in the UI.
+        # For IGAA tokens, webhook subscription is usually handled at the App Dashboard level.
+        # We return True to prevent the worker from crashing.
         return True
 
     def process_comment(self, payload: dict):
