@@ -9,13 +9,12 @@ class Settings(BaseSettings):
     # Application
     APP_NAME: str = "Instagram Automation SaaS"
     DEBUG: bool = False
-    SECRET_KEY: str # General app secret
+    SECRET_KEY: str 
     
-    # API URL - REQUIRED for Instagram Callbacks
-    # Set this to https://dmtest-production.up.railway.app in Railway
+    # API URL
     API_URL: str = "http://localhost:8000"
     
-    # Database (Alembic will use DIRECT_DATABASE_URL)
+    # Database
     DATABASE_URL: str
     DIRECT_DATABASE_URL: str
     
@@ -27,8 +26,6 @@ class Settings(BaseSettings):
     META_APP_SECRET: str
     META_VERIFY_TOKEN: str
     INSTAGRAM_GRAPH_API_VERSION: str = "v18.0"
-    
-    # This must match exactly what you put in the Facebook App Dashboard
     INSTAGRAM_REDIRECT_URI: str = "https://dmtest-production.up.railway.app/api/instagram/callback"
     
     # JWT
@@ -46,7 +43,7 @@ class Settings(BaseSettings):
     FREE_TRIAL_DAYS: int = 15
     PRO_PLAN_PRICE: float = 29.99
     
-    # Rate Limiting (Instagram API)
+    # Rate Limiting
     INSTAGRAM_RATE_LIMIT_PER_HOUR: int = 200
     DM_RATE_LIMIT_PER_DAY: int = 100
     
@@ -54,8 +51,14 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: Optional[str] = None
     CELERY_RESULT_BACKEND: Optional[str] = None
     
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173", "https://app.dmrocket.co", "https://dmrocket.co"]
+    # ✅ FIXED: Explicitly listed allowed domains (required for allow_credentials=True)
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000", 
+        "http://localhost:5173", 
+        "https://app.dmrocket.co", 
+        "https://dmrocket.co",
+        "https://www.dmrocket.co"
+    ]
     
     # Admin
     ADMIN_EMAIL: str
