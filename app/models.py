@@ -119,6 +119,9 @@ class Automation(Base):
     message_text = Column(Text, nullable=False)
     message_media_url = Column(String(500))  # For images/videos/documents
     
+    # --- NEW: Comment Reply Options ---
+    comment_reply_options = Column(JSON, default=[])  # List of strings for random replies
+    
     # Status
     status = Column(Enum(AutomationStatus), default=AutomationStatus.ACTIVE)
     

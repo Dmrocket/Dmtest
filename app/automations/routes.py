@@ -27,6 +27,8 @@ class AutomationCreate(BaseModel):
     message_type: MessageContentType
     message_text: str
     message_media_url: str | None = None
+    # NEW: Comment Reply Options
+    comment_reply_options: List[str] = []
 
 class AutomationUpdate(BaseModel):
     name: str | None = None
@@ -35,6 +37,8 @@ class AutomationUpdate(BaseModel):
     message_text: str | None = None
     message_media_url: str | None = None
     status: AutomationStatus | None = None
+    # NEW: Allow updating reply options
+    comment_reply_options: List[str] | None = None
 
 class AutomationResponse(BaseModel):
     id: int
@@ -46,6 +50,8 @@ class AutomationResponse(BaseModel):
     message_type: MessageContentType
     message_text: str
     message_media_url: str | None
+    # NEW: Response field
+    comment_reply_options: List[str] | None
     status: AutomationStatus
     total_comments_processed: int
     total_dms_sent: int
@@ -117,6 +123,8 @@ async def create_automation(
         message_type=automation_data.message_type,
         message_text=automation_data.message_text,
         message_media_url=automation_data.message_media_url,
+        # NEW: Save comment replies
+        comment_reply_options=automation_data.comment_reply_options,
         status=AutomationStatus.ACTIVE
     )
     

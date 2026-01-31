@@ -83,6 +83,32 @@ class InstagramAPIClient:
             logger.error(f"Network/Unexpected Error sending DM: {str(e)}")
             raise e
 
+    def reply_to_comment(self, comment_id: str, message_text: str):
+        """
+        Publicly replies to a comment.
+        """
+        url = f"{self.base_url}/{comment_id}/replies"
+        
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "message": message_text
+        }
+
+        try:
+            with httpx.Client() as client:
+                response = client.post(url, json=payload, headers=headers, timeout=10.0)
+                response.raise_for_status()
+                return response.json()
+                
+        except Exception as e:
+            logger.error(f"Error posting public reply to comment {comment_id}: {str(e)}")
+            # We don't raise here to ensure the main DM flow isn't interrupted by a comment failure
+            return None
+
     def subscribe_to_webhooks(self):
         """
         Enables the 'comments' and 'mentions' fields for the user's page.

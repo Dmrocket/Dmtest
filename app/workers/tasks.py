@@ -1,4 +1,5 @@
 import os
+import random
 from celery import Celery
 from celery.schedules import crontab
 from sqlalchemy.orm import Session
@@ -128,6 +129,16 @@ def process_comment_and_send_dm(self, dm_log_id: int):
             track_rate_limit(user.id, "dm_send", db)
             
             logger.info(f"DM sent successfully: {dm_log_id}")
+            
+            # --- NEW FEATURE: Public Comment Reply ---
+            # If the automation has comment reply options, pick one randomly and post it
+            if automation.comment_reply_options and len(automation.comment_reply_options) > 0:
+                try:
+                    reply_text = random.choice(automation.comment_reply_options)
+                    client.reply_to_comment(dm_log.comment_id, reply_text)
+                    logger.info(f"Public reply posted for comment {dm_log.comment_id}")
+                except Exception as reply_err:
+                    logger.error(f"Failed to post public reply: {str(reply_err)}")
             
         except Exception as e:
             logger.error(f"Failed to send DM {dm_log_id}: {str(e)}")
