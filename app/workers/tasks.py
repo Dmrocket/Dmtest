@@ -58,6 +58,28 @@ def process_comment_and_send_dm(self, dm_log_id: int):
             logger.error(f"DMLog {dm_log_id} not found")
             return
         
+        # --- 🛡️ DUPLICATE CHECK START 🛡️ ---
+        # Check if ANY other log exists for this exact comment that was already SENT
+        # This prevents duplicate DMs if the webhook fired twice or race conditions occurred
+        if dm_log.comment_id:
+            already_sent = db.query(DMLog).filter(
+                DMLog.comment_id == dm_log.comment_id, # Same Instagram Comment ID
+                DMLog.dm_status == DMStatus.SENT,      # Only care if it was successful
+                DMLog.id != dm_log_id                  # Don't match the current log itself
+            ).first()
+
+            if already_sent:
+                logger.warning(f"Duplicate DM detected for comment {dm_log.comment_id}. Skipping to prevent spam.")
+                dm_log.dm_status = DMStatus.FAILED
+                dm_log.error_message = "Duplicate: DM already sent for this comment"
+                dm_log.failed_at = datetime.utcnow()
+                
+                # We don't increment failure stats here because it's technically a success (the user got the msg)
+                # Just marking this specific duplicate task as failed/skipped
+                db.commit()
+                return
+        # --- 🛡️ DUPLICATE CHECK END 🛡️ ---
+        
         user = dm_log.user
         automation = dm_log.automation
         
